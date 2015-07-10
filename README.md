@@ -6,8 +6,8 @@ The idea of this tutorial is to show how code can be shared between streaming an
 The focus is maintenance of the code in the long term, i.e. you want to update your analysis functions, without affecting both streaming and batch pipelines.
 
 Batch is currenty showing 2 use cases:
-1. relaunch hashtag analysis -- think you want to have data on a specific temporal window
-2. recompute keywords and relaunch analysis -- think you have an improved algorithm and need to update all historical data
+   1. relaunch hashtag analysis -- think you want to have data on a specific temporal window
+   1. recompute keywords and relaunch analysis -- think you have an improved algorithm and need to update all historical data
 
 This is a work in progress.
 

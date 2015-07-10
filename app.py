@@ -1,15 +1,26 @@
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
+from sqlalchemy import create_engine
+from sqlalchemy.orm import scoped_session, sessionmaker
 
 from models import Tweet
+from analysis import keywordExtraction, analysisHahtagCount, analysisKeywordCount
+# from database import engine
 
 CHECKPOINT_DIR='/mnt/hadoop-disk/hadoop/spark/checkpoints'
+PYFILES = ['app.py', 'database.py', 'models.py']
+MASTER = '10.240.169.72'
 
 def storeTweetsRDD(time, rdd):
     def storeTweetsPartition(partition):
+        # TODO better db sessions
+        engine = create_engine('mysql://root@%s/db' % MASTER)
+        db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+
         for t in partition:
-            # print("Storing tweet: %s" % str(t))
-            pass
+            db_session.add(t)
+
+        db_session.commit()
 
     if not rdd.isEmpty():
         rdd.foreachPartition(storeTweetsPartition)
@@ -23,50 +34,26 @@ def updateTweetsRDD(time, rdd):
     if not rdd.isEmpty():
         rdd.foreachPartition(updateTweetsPartition)
 
-def keywordExtraction(t):
-    # import time
-    # time.sleep(5)
-    t.setKeywords( t.words() )
-    return t
-
-def top(counts):
-    def topPartition(partition):
-        return sorted(partition, key=lambda p: p[1], reverse=True)[:10]
-
-    return counts.transform(lambda rdd: rdd.mapPartitions(topPartition)
-        .sortBy(lambda p: p[1], ascending=False))
-
-def analysisHahtagCount(tweets):
-    hashtags = tweets.flatMap(lambda t: t.hashtags())
-    pairs = hashtags.map(lambda h: (h, 1))
-    hashtagCounts = pairs.reduceByKey(lambda x, y: x + y)
-    return top(hashtagCounts)
-
-def analysisKeywordCount(tweets):
-    keywords = tweets.flatMap(lambda t: t.keywords())
-    pairs = keywords.map(lambda kw: (kw, 1))
-    keywordCounts = pairs.reduceByKey(lambda x, y: x + y)
-    return top(keywordCounts)
-
 def createStreamingContext():
 
     # Create a local StreamingContext with two working thread and batch interval of 1 second
-    sc = SparkContext("local[8]", "GlutenTweet")
+    # sc = SparkContext("spark://%s:7077" % MASTER, "GlutenTweet", pyFiles=PYFILES)
+    sc = SparkContext("local[4]", "GlutenTweet", pyFiles=PYFILES)
     ssc = StreamingContext(sc, 2)
 
-    # Create a DStream that will connect to hostname:port, like localhost:9999
-    raw = ssc.socketTextStream("localhost", 9999)
+    # Create a DStream of raw data
+    raw = ssc.socketTextStream(MASTER, 9999)
 
     # Convert into models
-    tweets = raw.map(lambda r: Tweet(r))
+    tweets = raw.map(lambda r: Tweet(raw_json=r))
 
     # Store models
     tweets.foreachRDD(storeTweetsRDD)
 
     # Sliding window analysis
-    window = tweets.window(10*60, 30)
+    window = tweets.window(20*60, 30)
     hashtagCounts = analysisHahtagCount(window)
-    hashtagCounts.pprint()
+    streamTop(hashtagCounts).pprint()
 
     # Keyword extraction - note tweets is immutable
     tweetsKeyword = tweets.map(lambda t: keywordExtraction(t))
@@ -75,9 +62,9 @@ def createStreamingContext():
     tweetsKeyword.foreachRDD(updateTweetsRDD)
 
     # Sliding window analysis
-    window2 = tweetsKeyword.window(10*60, 30)
+    window2 = tweetsKeyword.window(20*60, 30)
     keywordCounts = analysisKeywordCount(window2)
-    keywordCounts.pprint()
+    streamTop(keywordCounts).pprint()
 
     ssc.checkpoint(CHECKPOINT_DIR)
     return ssc

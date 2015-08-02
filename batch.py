@@ -3,13 +3,13 @@ from pyspark import SparkContext
 from models import Tweet
 from database import db_session
 from analysis import keywordExtraction, analysisHahtagCount, analysisKeywordCount
+from config import *
 
-PYFILES = ['batch.py', 'database.py', 'models.py']
-MASTER = '10.240.169.72'
+PYFILES = ['batch.py'] + PYFILES
 
 # Create a local StreamingContext with two working thread and batch interval of 1 second
 # sc = SparkContext("spark://%s:7077" % MASTER, "GlutenTweetBatch", pyFiles=PYFILES)
-sc = SparkContext("local[4]", "GlutenTweetBatch", pyFiles=PYFILES)
+sc = SparkContext("spark://%s:7077" % 'hadoop-m-unoa', appName="GlutenTweetBatch", pyFiles=PYFILES)
 
 dbTweets = db_session.query(Tweet).all()
 tweets = sc.parallelize(dbTweets)

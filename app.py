@@ -6,15 +6,15 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from models import Tweet
 from analysis import keywordExtraction, analysisHahtagCount, analysisKeywordCount
 # from database import engine
+from config import *
 
 CHECKPOINT_DIR='/mnt/hadoop-disk/hadoop/spark/checkpoints'
-PYFILES = ['app.py', 'database.py', 'models.py']
-MASTER = '10.240.169.72'
+PYFILES = ['app.py'] + PYFILES
 
 def storeTweetsRDD(time, rdd):
     def storeTweetsPartition(partition):
         # TODO better db sessions
-        engine = create_engine('mysql://root@%s/db' % MASTER)
+        engine = create_engine('mysql://root@%s/db' % MASTER_IP)
         db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
         for t in partition:
@@ -34,15 +34,21 @@ def updateTweetsRDD(time, rdd):
     if not rdd.isEmpty():
         rdd.foreachPartition(updateTweetsPartition)
 
+def streamTop(counts):
+    def topPartition(partition):
+        return sorted(partition, key=lambda p: p[1], reverse=True)[:10]
+
+    return counts.transform(lambda rdd: rdd.mapPartitions(topPartition)
+        .sortBy(lambda p: p[1], ascending=False))
+
 def createStreamingContext():
 
     # Create a local StreamingContext with two working thread and batch interval of 1 second
-    # sc = SparkContext("spark://%s:7077" % MASTER, "GlutenTweet", pyFiles=PYFILES)
-    sc = SparkContext("local[4]", "GlutenTweet", pyFiles=PYFILES)
+    sc = SparkContext("spark://%s:7077" % MASTER_NAME, appName="GlutenTweet", pyFiles=PYFILES)
     ssc = StreamingContext(sc, 2)
 
     # Create a DStream of raw data
-    raw = ssc.socketTextStream(MASTER, 9999)
+    raw = ssc.socketTextStream(MASTER_IP, 9999)
 
     # Convert into models
     tweets = raw.map(lambda r: Tweet(raw_json=r))
